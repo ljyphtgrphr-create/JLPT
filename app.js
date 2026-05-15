@@ -9,7 +9,7 @@ import {
   getHideEnabled, setHideEnabled,
 } from "./storage.js";
 import { lookupExamples } from "./dict.js";
-import { isBootstrapped, hasProxy, bootstrap, redownload } from "./bootstrap.js";
+import { isBootstrapped, examplesFileAvailable, bootstrap, reload } from "./bootstrap.js";
 
 const appEl = document.getElementById("app");
 
@@ -466,8 +466,8 @@ async function renderWrongTab() {
 async function renderSettingsTab() {
   const allProgress = await getAllProgress();
   const hiddenCount = allProgress.filter((p) => p.hidden).length;
-  const proxy = (await getMeta("tatoeba_proxy")) || "";
   const boot = await isBootstrapped();
+  const fileExists = await examplesFileAvailable();
 
   return `
     <div class="settings-section">
@@ -485,19 +485,23 @@ async function renderSettingsTab() {
     </div>
 
     <div class="settings-section">
-      <h3>예문 데이터 (Tatoeba)</h3>
+      <h3>예문 데이터</h3>
       <p>
         ${boot
-          ? "예문 데이터가 캐시되어 있습니다."
-          : "예문 다운로드를 위해 CORS 프록시 URL이 필요합니다 (README의 5분 가이드 참고)."}
+          ? "✅ 예문 데이터가 IndexedDB에 캐시되어 있습니다."
+          : (fileExists
+              ? "📄 examples.json 파일이 서버에 있습니다. 아래 버튼으로 색인을 시작하세요."
+              : "❌ examples.json 파일이 없습니다. README의 안내대로 같은 폴더에 업로드해 주세요.")}
       </p>
-      <p>현재 프록시: <code>${escapeHtml(proxy || "(미설정)")}</code></p>
-      <input type="text" id="proxy-input"
-        placeholder="https://your-worker.workers.dev"
-        value="${escapeHtml(proxy)}"
-        style="width:100%; padding:10px 12px; border:1px solid var(--rule); border-radius:4px; font-family:var(--font-mono); font-size:12px; background:var(--paper-2); margin-bottom:8px;" />
-      <button class="btn ghost" id="save-proxy-btn">프록시 저장</button>
-      ${proxy ? `<button class="btn ghost" id="download-examples-btn" style="margin-left: 6px;">${boot ? "예문 다시 받기" : "예문 다운로드"}</button>` : ""}
+      ${fileExists
+        ? `<button class="btn ghost" id="reload-examples-btn">${boot ? "예문 다시 색인" : "예문 색인 시작"}</button>`
+        : `<p style="font-size:12px; color:var(--muted); margin-top:8px;">
+            <strong>설치 방법:</strong><br>
+            1. <a href="https://github.com/mwhirls/tatoeba-json/releases/latest" target="_blank">mwhirls/tatoeba-json 최신 릴리스</a>에서 <code>jpn-eng-examples.zip</code> 다운로드<br>
+            2. 압축을 풀어서 안의 JSON 파일을 <code>examples.json</code>으로 이름 바꾸기<br>
+            3. 같은 GitHub Pages 폴더에 업로드<br>
+            4. 이 페이지 새로고침
+          </p>`}
     </div>
 
     <div class="settings-section">
@@ -625,17 +629,9 @@ function bindEvents() {
     render();
   });
 
-  const saveProxyBtn = document.getElementById("save-proxy-btn");
-  if (saveProxyBtn) saveProxyBtn.addEventListener("click", async () => {
-    const v = document.getElementById("proxy-input").value.trim();
-    await setMeta("tatoeba_proxy", v);
-    flash(v ? "프록시 저장됨" : "프록시 해제됨");
-    render();
-  });
-
-  const downloadExamplesBtn = document.getElementById("download-examples-btn");
-  if (downloadExamplesBtn) downloadExamplesBtn.addEventListener("click", async () => {
-    if (!confirm("예문 데이터를 다운로드할까요? 인터넷 연결 + 시간 소요 (약 30~50MB 다운로드 후 IndexedDB에 색인)")) return;
+  const reloadExamplesBtn = document.getElementById("reload-examples-btn");
+  if (reloadExamplesBtn) reloadExamplesBtn.addEventListener("click", async () => {
+    if (!confirm("examples.json 파일을 다시 읽어서 색인할까요? 1~2분 소요됩니다.")) return;
     await runBootstrapUI(true);
   });
 
@@ -665,10 +661,10 @@ function renderBootScreen({ pct = 0, msg = "", error = null, skipPossible = fals
     </header>
     <div class="boot">
       <div class="boot-mark">語</div>
-      <div class="boot-title">예문 데이터 준비 중</div>
+      <div class="boot-title">예문 색인 중</div>
       <div class="boot-msg">
-        Tatoeba 일영 예문 데이터를 한 번만 받습니다.<br>
-        이후로는 인터넷 없이도 작동해요. (약 30~50MB)
+        examples.json 파일을 읽어서 IndexedDB에 색인합니다.<br>
+        한 번만 하면 이후 영구 오프라인 작동. (1~2분)
       </div>
       <div class="boot-progress"><div class="boot-bar" style="width:${pct}%"></div></div>
       <div class="boot-pct">${pct}% · ${escapeHtml(msg)}</div>
@@ -692,7 +688,7 @@ function renderBootScreen({ pct = 0, msg = "", error = null, skipPossible = fals
 async function runBootstrapUI(force = false) {
   renderBootScreen({ pct: 0, msg: "시작 중", skipPossible: true });
   try {
-    if (force) await redownload((p) => renderBootScreen({ ...p, skipPossible: false }));
+    if (force) await reload((p) => renderBootScreen({ ...p, skipPossible: false }));
     else await bootstrap((p) => renderBootScreen({ ...p, skipPossible: false }));
     const allProgress = await getAllProgress();
     state._progressMap = new Map(allProgress.map((p) => [p.id, p]));
@@ -717,23 +713,26 @@ async function boot() {
   }
 
   // If examples already cached, go straight to main.
-  // If not, check whether user has set up a proxy. If yes, kick off bootstrap.
-  // If no proxy yet, just start the app (examples will simply be empty).
   if (await isBootstrapped()) {
     const allProgress = await getAllProgress();
     state._progressMap = new Map(allProgress.map((p) => [p.id, p]));
     await pickNext();
     render();
-  } else if (await hasProxy()) {
+    return;
+  }
+
+  // Not cached yet. Check if examples.json file is present on the server.
+  const fileAvail = await examplesFileAvailable();
+  if (fileAvail) {
+    // File is there — auto-bootstrap with progress UI
     runBootstrapUI(false);
   } else {
-    // No proxy yet — start app without examples; user can set up later in settings
+    // File missing — start app without examples; user can add the file later
     const allProgress = await getAllProgress();
     state._progressMap = new Map(allProgress.map((p) => [p.id, p]));
     await pickNext();
     render();
-    // Light flash to suggest they set up examples
-    setTimeout(() => flash("예문 보려면 설정 → 프록시 등록"), 800);
+    setTimeout(() => flash("예문 보려면 설정 → examples.json 업로드 안내"), 800);
   }
 }
 

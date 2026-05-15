@@ -1,11 +1,8 @@
-// bootstrap.js — downloads Japanese-English Tatoeba sentences via CORS proxy
+// bootstrap.js — loads example sentences from local examples.json (same folder)
+// No external download. User uploads examples.json next to index.html.
 import { bulkPutExamples, examplesCount, getMeta, setMeta } from "./storage.js";
 
-// mwhirls/tatoeba-json release v0.0.52 (last stable, June 2024)
-// GitHub releases assets don't support CORS, so we need a user-provided proxy.
-const TATOEBA_RELEASE_URL =
-  "https://github.com/mwhirls/tatoeba-json/releases/download/v0.0.52/sentences.json";
-
+const EXAMPLES_URL = "./examples.json";  // same folder as index.html
 const BOOT_FLAG = "boot.examples.done";
 
 function concatUint8(chunks) {
@@ -18,10 +15,18 @@ function concatUint8(chunks) {
 }
 
 async function downloadStream(url, onProgress, startPct, endPct) {
-  onProgress({ pct: startPct, msg: "다운로드 시작" });
+  onProgress({ pct: startPct, msg: "파일 읽는 중" });
   const resp = await fetch(url, { cache: "no-store" });
-  if (!resp.ok) throw new Error("HTTP " + resp.status);
-
+  if (!resp.ok) {
+    if (resp.status === 404) {
+      throw new Error(
+        "examples.json 파일을 찾을 수 없습니다.\n" +
+        "README의 안내대로 jpn-eng-examples.zip을 받아서 압축을 풀고, " +
+        "안의 JSON 파일을 examples.json으로 이름 바꿔서 같은 폴더에 올려주세요."
+      );
+    }
+    throw new Error("HTTP " + resp.status);
+  }
   const total = parseInt(resp.headers.get("content-length") || "0", 10);
   const reader = resp.body.getReader();
   const chunks = [];
@@ -42,26 +47,12 @@ async function downloadStream(url, onProgress, startPct, endPct) {
   return concatUint8(chunks);
 }
 
-async function downloadExamples(onProgress) {
-  const proxy = await getMeta("tatoeba_proxy");
-  if (!proxy || !proxy.trim()) {
-    throw new Error(
-      "예문 데이터 다운로드를 위해 CORS 프록시 URL이 필요합니다.\n" +
-      "설정에서 Cloudflare Worker URL을 등록해 주세요 (README의 5분 가이드 참고)."
-    );
-  }
-  // Proxy forwards to TATOEBA_RELEASE_URL. Pass target as query param ?u=...
-  const proxyBase = proxy.trim().replace(/\/$/, "");
-  const url = `${proxyBase}?u=${encodeURIComponent(TATOEBA_RELEASE_URL)}`;
-
+async function loadExamples(onProgress) {
   let buf;
   try {
-    buf = await downloadStream(url, onProgress, 0, 55);
+    buf = await downloadStream(EXAMPLES_URL, onProgress, 0, 55);
   } catch (e) {
-    throw new Error(
-      "예문 다운로드 실패: " + e.message + "\n" +
-      "프록시 URL이 정확한지, Cloudflare Worker가 작동 중인지 확인해 주세요."
-    );
+    throw e;
   }
 
   onProgress({ pct: 58, msg: "JSON 파싱 중" });
@@ -70,7 +61,7 @@ async function downloadExamples(onProgress) {
   try {
     raw = JSON.parse(text);
   } catch (e) {
-    throw new Error("예문 JSON 파싱 실패: " + e.message);
+    throw new Error("examples.json 파싱 실패: " + e.message);
   }
   if (!Array.isArray(raw)) {
     if (raw && Array.isArray(raw.sentences)) raw = raw.sentences;
@@ -79,7 +70,6 @@ async function downloadExamples(onProgress) {
 
   onProgress({ pct: 62, msg: `${raw.length.toLocaleString()}개 문장 색인 중` });
 
-  // Build index: headword/reading → [{jp, en}, ...]
   const MAX_PER_KEY = 6;
   const MAX_LEN = 80;
   const index = new Map();
@@ -147,9 +137,14 @@ export async function isBootstrapped() {
   return cnt > 0;
 }
 
-export async function hasProxy() {
-  const p = await getMeta("tatoeba_proxy");
-  return !!(p && p.trim());
+// Check if examples.json exists on the server, with a HEAD request
+export async function examplesFileAvailable() {
+  try {
+    const resp = await fetch(EXAMPLES_URL, { method: "HEAD" });
+    return resp.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function bootstrap(onProgress) {
@@ -157,11 +152,11 @@ export async function bootstrap(onProgress) {
     onProgress({ pct: 100, msg: "이미 캐시됨" });
     return;
   }
-  await downloadExamples(onProgress);
+  await loadExamples(onProgress);
   onProgress({ pct: 100, msg: "완료" });
 }
 
-export async function redownload(onProgress) {
+export async function reload(onProgress) {
   await setMeta(BOOT_FLAG, false);
   await bootstrap(onProgress);
 }

@@ -1,5 +1,5 @@
 // sw.js — app-shell cache for offline PWA use
-const CACHE = "jp-v1";
+const CACHE = "jp-v2";
 const SHELL = [
   "./",
   "./index.html",
@@ -30,14 +30,8 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  // Never intercept proxy/data fetches
-  if (
-    url.hostname.includes("workers.dev") ||
-    url.hostname.includes("github.com") ||
-    url.hostname.includes("githubusercontent.com")
-  ) {
-    return;
-  }
+  // Skip large examples.json — it's processed once and stored in IndexedDB
+  if (url.pathname.endsWith("/examples.json")) return;
 
   if (e.request.method === "GET" && url.origin === self.location.origin) {
     e.respondWith(
