@@ -1,4 +1,4 @@
-// dict.js — look up Japanese example sentences with furigana ruby rendering
+// dict.js — look up Japanese example sentences with furigana + Korean word hints
 import { getExamples } from "./storage.js";
 
 function escapeHtml(s) {
@@ -8,40 +8,49 @@ function escapeHtml(s) {
 }
 
 /**
- * Render a sentence's "segments" into HTML with furigana ruby annotations.
- * Each segment is either:
- *   [text]            — plain text, no ruby
- *   [text, reading]   — kanji with reading, render as <ruby>text<rt>reading</rt></ruby>
+ * Render sentence segments into TWO parallel HTML lines:
+ *   line 1: Japanese with furigana (<ruby>) — for ex-jp display
+ *   line 2: Korean word hints inline aligned to each segment — for ex-ko display
  *
- * Also highlights segments whose text matches the lookup word.
+ * Segment formats stored in IndexedDB:
+ *   [text]                  — plain text, no annotation
+ *   [text, reading]         — kanji with furigana reading
+ *   [text, reading, ko]     — kanji with furigana + Korean meaning hint
+ *   [text, "",      ko]     — text with Korean hint, no reading needed
  */
 function renderSegments(segments, highlightWord) {
-  if (!Array.isArray(segments)) return escapeHtml(String(segments));
-  let html = "";
+  if (!Array.isArray(segments)) return { jp: escapeHtml(String(segments)), ko: "" };
+
+  let jpHtml = "";
+  let koHtml = "";
+
   for (const seg of segments) {
     if (!Array.isArray(seg) || seg.length === 0) continue;
     const text = seg[0];
-    const reading = seg[1];
+    const reading = seg[1] || "";
+    const ko = seg[2] || "";
     const isHighlight = highlightWord && text === highlightWord;
-    const open = isHighlight ? "<b>" : "";
-    const close = isHighlight ? "</b>" : "";
+
+    // Japanese line: ruby if has reading, else plain
+    const openB = isHighlight ? "<b>" : "";
+    const closeB = isHighlight ? "</b>" : "";
     if (reading) {
-      // ruby annotation
-      html += `${open}<ruby>${escapeHtml(text)}<rt>${escapeHtml(reading)}</rt></ruby>${close}`;
+      jpHtml += `${openB}<ruby>${escapeHtml(text)}<rt>${escapeHtml(reading)}</rt></ruby>${closeB}`;
     } else {
-      html += `${open}${escapeHtml(text)}${close}`;
+      jpHtml += `${openB}${escapeHtml(text)}${closeB}`;
+    }
+
+    // Korean hint line: render small chips for each segment that has a Korean hint,
+    // separated by visual gaps. Plain segments produce nothing.
+    if (ko) {
+      const cls = isHighlight ? "ko-chip ko-chip-hl" : "ko-chip";
+      koHtml += `<span class="${cls}">${escapeHtml(ko)}</span>`;
     }
   }
-  return html;
+
+  return { jp: jpHtml, ko: koHtml };
 }
 
-/**
- * Find example sentences for a word, trying both kanji and kana forms.
- * Each example sentence is stored as [segments, en] where segments is an array
- * of [text] or [text, reading] tuples.
- *
- * Returns { pairs: [{jp:html, en}, ...], source }
- */
 export async function lookupExamples(word) {
   const candidates = [];
   if (word.h) candidates.push(word.h);
@@ -55,18 +64,15 @@ export async function lookupExamples(word) {
   }
 
   let pairs = [];
-  let highlightWord = candidates[0];
-
   for (const key of candidates) {
     if (pairs.length >= 3) break;
     const entry = await getExamples(key);
     if (!entry) continue;
     for (const p of entry.pairs) {
       if (pairs.length >= 3) break;
-      // Avoid duplicates by checking the first segment's text or full pair
-      const sigJp = JSON.stringify(p.jp);
-      if (!pairs.find((x) => x._sig === sigJp)) {
-        pairs.push({ ...p, _sig: sigJp, _matchedKey: key });
+      const sig = JSON.stringify(p.jp);
+      if (!pairs.find((x) => x._sig === sig)) {
+        pairs.push({ ...p, _sig: sig, _matchedKey: key });
       }
     }
   }
@@ -75,20 +81,21 @@ export async function lookupExamples(word) {
     return { pairs: [], source: "예문 없음", empty: true };
   }
 
-  // Sort: prefer pairs from kanji match first, then shorter sentences
   pairs.sort((a, b) => {
-    // Compute total text length from segments
-    const lenA = Array.isArray(a.jp) ? a.jp.reduce((s, seg) => s + (seg[0]?.length || 0), 0) : (a.jp || "").length;
-    const lenB = Array.isArray(b.jp) ? b.jp.reduce((s, seg) => s + (seg[0]?.length || 0), 0) : (b.jp || "").length;
+    const lenA = Array.isArray(a.jp) ? a.jp.reduce((s, seg) => s + (seg[0]?.length || 0), 0) : 0;
+    const lenB = Array.isArray(b.jp) ? b.jp.reduce((s, seg) => s + (seg[0]?.length || 0), 0) : 0;
     return lenA - lenB;
   });
   pairs = pairs.slice(0, 3);
 
-  // Format with furigana ruby + highlight
-  const formatted = pairs.map((p) => ({
-    jp: renderSegments(p.jp, p._matchedKey || highlightWord),
-    en: escapeHtml(p.en || ""),
-  }));
+  const formatted = pairs.map((p) => {
+    const rendered = renderSegments(p.jp, p._matchedKey);
+    return {
+      jp: rendered.jp,
+      ko: rendered.ko,
+      en: escapeHtml(p.en || ""),
+    };
+  });
 
   return {
     pairs: formatted,

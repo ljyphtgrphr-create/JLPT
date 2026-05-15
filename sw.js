@@ -1,5 +1,5 @@
 // sw.js — app-shell cache for offline PWA use
-const CACHE = "jp-v2";
+const CACHE = "jp-v3";
 const SHELL = [
   "./",
   "./index.html",

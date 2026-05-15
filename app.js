@@ -267,6 +267,7 @@ function renderReveal(w) {
     const items = ex.pairs.map((p) => `
       <li>
         <div class="ex-jp">${p.jp}</div>
+        ${p.ko ? `<div class="ex-ko">${p.ko}</div>` : ""}
         <div class="ex-en">${p.en}</div>
       </li>`).join("");
     exHtml = `
