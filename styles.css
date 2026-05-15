@@ -411,14 +411,36 @@ body {
 .examples .ex-jp {
   font-family: var(--font-jp);
   font-size: 17px;
-  line-height: 1.5;
+  line-height: 2;  /* extra room for ruby annotations above */
   color: var(--ink);
   margin-bottom: 4px;
 }
+.examples .ex-jp ruby {
+  ruby-position: over;
+}
+.examples .ex-jp rt {
+  font-family: var(--font-jp-sans);
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--vermilion);
+  letter-spacing: .02em;
+  line-height: 1;
+  /* a tiny bit of extra space below the rt so it doesn't crash into the base */
+  margin-bottom: 1px;
+}
 .examples .ex-jp b {
-  background: rgba(31, 58, 95, .14);
-  padding: 0 3px;
+  background: rgba(31, 58, 95, .22);
+  padding: 0;
   font-weight: 500;
+  display: inline;
+  border-radius: 2px;
+}
+.examples .ex-jp b ruby {
+  padding: 0 1px;
+}
+.examples .ex-jp b ruby rt {
+  color: var(--indigo);
+  font-weight: 600;
 }
 .examples .ex-en {
   font-family: var(--font-body);
