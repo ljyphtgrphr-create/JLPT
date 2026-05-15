@@ -488,19 +488,17 @@ async function renderSettingsTab() {
       <h3>예문 데이터</h3>
       <p>
         ${boot
-          ? "✅ 예문 데이터가 IndexedDB에 캐시되어 있습니다."
+          ? "✅ 예문 데이터가 IndexedDB에 저장되어 있습니다."
           : (fileExists
-              ? "📄 examples.json 파일이 서버에 있습니다. 아래 버튼으로 색인을 시작하세요."
-              : "❌ examples.json 파일이 없습니다. README의 안내대로 같은 폴더에 업로드해 주세요.")}
+              ? "📄 examples.json 파일이 있습니다. 아래 버튼으로 저장하세요."
+              : "❌ examples.json 파일이 없습니다.")}
       </p>
       ${fileExists
-        ? `<button class="btn ghost" id="reload-examples-btn">${boot ? "예문 다시 색인" : "예문 색인 시작"}</button>`
-        : `<p style="font-size:12px; color:var(--muted); margin-top:8px;">
-            <strong>설치 방법:</strong><br>
-            1. <a href="https://github.com/mwhirls/tatoeba-json/releases/latest" target="_blank">mwhirls/tatoeba-json 최신 릴리스</a>에서 <code>jpn-eng-examples.zip</code> 다운로드<br>
-            2. 압축을 풀어서 안의 JSON 파일을 <code>examples.json</code>으로 이름 바꾸기<br>
-            3. 같은 GitHub Pages 폴더에 업로드<br>
-            4. 이 페이지 새로고침
+        ? `<button class="btn ghost" id="reload-examples-btn">${boot ? "예문 다시 받기" : "예문 받기"}</button>`
+        : `<p style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.6;">
+            예문이 없어도 학습은 정상 작동합니다. 예문이 필요하면 같은 폴더에
+            <code>examples.json</code> 파일을 업로드한 뒤 이 페이지를 새로고침하세요.
+            (사전 색인된 약 5MB 파일이 zip에 포함되어 있어요)
           </p>`}
     </div>
 
@@ -661,10 +659,10 @@ function renderBootScreen({ pct = 0, msg = "", error = null, skipPossible = fals
     </header>
     <div class="boot">
       <div class="boot-mark">語</div>
-      <div class="boot-title">예문 색인 중</div>
+      <div class="boot-title">예문 데이터 저장 중</div>
       <div class="boot-msg">
-        examples.json 파일을 읽어서 IndexedDB에 색인합니다.<br>
-        한 번만 하면 이후 영구 오프라인 작동. (1~2분)
+        examples.json (약 5MB)을 한 번만 받아 IndexedDB에 저장합니다.<br>
+        이후로는 완전 오프라인 작동.
       </div>
       <div class="boot-progress"><div class="boot-bar" style="width:${pct}%"></div></div>
       <div class="boot-pct">${pct}% · ${escapeHtml(msg)}</div>
